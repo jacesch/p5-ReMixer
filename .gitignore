@@ -1,0 +1,4 @@
+spleeter-env/
+backend/spleeter-env/
+venv/
+.env/
