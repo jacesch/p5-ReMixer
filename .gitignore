@@ -1,4 +1,5 @@
+node_modules/
+pretrained_models/
+public/
+uploads/
 spleeter-env/
-backend/spleeter-env/
-venv/
-.env/

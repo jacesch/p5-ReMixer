@@ -1,6 +1,8 @@
 let slider = {};
 let gainArr = [];
 let synth;
+let audioClips = [];
+let isLoading = false;
 
 const sliderTemp = {
   drums: {
@@ -52,32 +54,37 @@ const sliderTemp = {
 };
 
 const gsPlayers = [];
-const audioClips = [
-  "http://localhost:3000/public/stems/song1/drums.wav",
-  "http://localhost:3000/public/stems/song2/drums.wav",
-  "http://localhost:3000/public/stems/song1/bass.wav",
-  "http://localhost:3000/public/stems/song2/bass.wav",
-  "http://localhost:3000/public/stems/song1/other.wav",
-  "http://localhost:3000/public/stems/song2/other.wav",
-  "http://localhost:3000/public/stems/song1/vocals.wav",
-  "http://localhost:3000/public/stems/song2/vocals.wav"
-];
 
-for (let i = 0; i < audioClips.length; i++)
-  {
-    const tempClip = audioClips[i];
-    const tempPlayer = new Tone.GrainPlayer(tempClip, () => {
-        //console.log(tempClip + " has finished loading!");
-        tempPlayer.playbackRate = 1
-        tempPlayer.detune = 0
-        tempPlayer.grainSize = 0.1
-        tempPlayer.overlap = 0.05
-        tempPlayer.sync();
-        tempPlayer.start(0);
-        tempPlayer.loop = true;
-      });
-    gsPlayers.push(tempPlayer);
+async function buildPlayers(audioClips) {
+  gsPlayers.length = 0;
+  gainArr.length = 0;
+
+  for (const url of audioClips) {
+    const player = new Tone.GrainPlayer({
+      url,
+      loop: true,
+      grainSize: 0.1,
+      overlap: 0.05,
+      playbackRate: 1,
+      detune: 0
+    });
+
+    const gain = new Tone.Gain(1).toDestination();
+    player.connect(gain);
+
+    gsPlayers.push(player);
+    gainArr.push(gain);
   }
+
+  await Tone.loaded();
+
+  gsPlayers.forEach(p => {
+    p.sync();
+    p.start(0);
+  });
+
+  console.log("Players built:", gsPlayers.length);
+}
 
 function setup() {
   createCanvas(400, 500);
@@ -104,36 +111,73 @@ function setup() {
   
   const uploadBtn = document.getElementById("uploadBtn");
 
-  uploadBtn.addEventListener("click", () => {
-    const fileA = document.getElementById("songA").files[0];
-    const fileB = document.getElementById("songB").files[0];
+  uploadBtn.addEventListener("click", async () => {
+  isLoading = true;
 
-    if (!fileA || !fileB) {
-      alert("Please upload BOTH songs.");
-      return;
-    }
+  const fileA = document.getElementById("songA").files[0];
+  const fileB = document.getElementById("songB").files[0];
 
-    const formData = new FormData();
-    formData.append("songs", fileA);
-    formData.append("songs", fileB);
+  if (!fileA || !fileB) {
+    alert("Please upload BOTH songs.");
+    isLoading = false;
+    return;
+  }
 
-    fetch("http://localhost:3000/upload", {
+  const formData = new FormData();
+  formData.append("songs", fileA);
+  formData.append("songs", fileB);
+
+  try {
+    const res = await fetch("http://localhost:3000/upload", {
       method: "POST",
       body: formData
-    })
-      .then(res => res.text())
-      .then((text) => {
-        console.log(text);
-        gsPlayers.forEach(p => p.dispose());
-        location.reload();
-      })
-      .catch(console.error);
-  });
+    });
+
+    const data = await res.json();
+
+    audioClips = [
+      `http://localhost:3000${data.song1.stemsBaseUrl}/drums.wav`,
+      `http://localhost:3000${data.song2.stemsBaseUrl}/drums.wav`,
+      `http://localhost:3000${data.song1.stemsBaseUrl}/bass.wav`,
+      `http://localhost:3000${data.song2.stemsBaseUrl}/bass.wav`,
+      `http://localhost:3000${data.song1.stemsBaseUrl}/other.wav`,
+      `http://localhost:3000${data.song2.stemsBaseUrl}/other.wav`,
+      `http://localhost:3000${data.song1.stemsBaseUrl}/vocals.wav`,
+      `http://localhost:3000${data.song2.stemsBaseUrl}/vocals.wav`
+    ];
+
+    await Tone.start();
+    await buildPlayers(audioClips);
+
+  } catch (err) {
+    console.error(err);
+    alert("Error loading stems. Check console for details.");
+  } finally {
+    isLoading = false;
+  }
+});
 }
 
 function draw() {
   background(220);
   
+  if (isLoading) {
+    textSize(24);
+    fill(0);
+    textAlign(CENTER, CENTER);
+    text("Loading stems...", width / 2, height / 2 + 10);
+    textSize(12);
+    text("(Press SPACE to start/stop when stems load)", width / 2, height / 2 + 35);
+    return;
+  }
+
+  if (gsPlayers.length === 0) {
+    textSize(16);
+    fill(10);
+    text("Upload songs to start", 100, 200);
+    return;
+  }
+
   let index = 0;
 
   for (let instType of ['drums', 'bass', 'inst', 'vox']) {
@@ -175,12 +219,14 @@ function draw() {
 }
 
 function keyPressed() {
-  Tone.start();
+  if (key === " " || keyCode === 32) {
+    Tone.start();
   
-  if (Tone.Transport.state === "started") {
-    Tone.Transport.stop();
-  } 
-  else {
-    Tone.Transport.start();
+    if (Tone.Transport.state === "started") {
+      Tone.Transport.stop();
+    } 
+    else {
+      Tone.Transport.start();
+    }
   }
-}
+} 
